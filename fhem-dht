@@ -1,0 +1,92 @@
+#!/usr/bin/python
+##########################################################################################
+#
+# Copyright (c) 2017 Georg Bottenhofer
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+##########################################################################################
+#
+# Requires: https://github.com/adafruit/Adafruit_Python_DHT
+#
+# SAMPLE FHEM CONFIGURATION
+# define Raspi.DHT22 dummy
+# attr Raspi.DHT22 alias Temp in ServerRack
+# attr Raspi.DHT22 group IT
+# attr Raspi.DHT22 room Basement
+# attr Raspi.DHT22 stateFormat T: Temperature H: Humidity
+#
+# Called every 5 Minute via CRON as ROOT-User:
+# */5 * * * * /usr/local/sbin/fhem-dht
+#
+##########################################################################################
+import Adafruit_DHT
+import socket
+
+# ### START ### SOME PARAMETERS
+# Config FHEM telnet
+host = 'localhost'
+port = 7072
+
+mysensors = [
+    {
+        'name': 'Raspi.DHT22',
+        'type': Adafruit_DHT.DHT22,
+        'pin':  4
+    },
+    # {
+    #     'name': 'SECOND-Raspi.DHT22',
+    #     'type': Adafruit_DHT.DHT22,
+    #     'pin':  5
+    # },
+]
+
+retries = 5
+delay = 2
+
+# ### END ### SOME PARAMETERS
+
+def netcat(hostname, port, data):
+    fhem = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    fhem.connect((hostname, port))
+    fhem.sendall(data)
+    fhem.shutdown(socket.SHUT_WR)
+    while 1:
+        sensor_readings = fhem.recv(1024)
+        if sensor_readings == "":
+            break
+    if sensor_readings:
+        print "Received:", repr(sensor_readings)
+    fhem.close()
+
+fhem = "";
+
+for sensor in mysensors:
+    humidity, temperature = Adafruit_DHT.read_retry(sensor['type'], sensor['pin'], retries, delay)
+
+    if humidity is not None and temperature is not None:
+            fhem += 'setreading {0} Temperature {1:0.1f}\n'.format(sensor['name'], temperature)
+            fhem += 'setreading {0} Humidity {1:0.1f}\n'.format(sensor['name'], humidity)
+            fhem += 'setreading {0} Error 0\n'.format(sensor['name'])
+    else:
+            fhem += 'setreading {0} Error 1\n'.format(sensor['name'])
+
+fhem += "quit"
+
+netcat(host, port, fhem)
